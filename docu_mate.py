@@ -1,6 +1,8 @@
 from typing import List, Dict, Optional
+import asyncio
 
-import api
+import notion_api
+import llm_api
 
 class DocuMate:
     def __init__(self):
@@ -13,13 +15,13 @@ class DocuMate:
         'code', 'callout', 'toggle'
     }
     
-    def get_unprocessed_blocks(self) -> List[Dict]:
+    async def get_unprocessed_blocks(self) -> List[Dict]:
         """
         获取所有未处理的block对象，但最多100个
         Returns:
             List[Dict]: 包含未处理block信息的字典列表
         """
-        results = api.query_database(
+        results = await notion_api.query_database(
             filter={
                 "property": self.processed_flag,
                 "checkbox": {"equals": False}
@@ -28,15 +30,9 @@ class DocuMate:
         )
         return results.get('results', [])
     
-    def get_block_text_content(self, block_id: str) -> str:
-        """
-        递归获取block及其子block的纯文本内容
-        Args:
-            block_id (str): 要获取内容的block ID
-        Returns:
-            str: 拼接后的纯文本内容
-        """
-        def parse_block(block: Dict) -> str:
+    async def get_block_text_content(self, block_id: str) -> str:
+        """异步获取内容"""
+        async def parse_block(block: Dict) -> str:
             """解析单个block的内容"""
             if block.get('type') not in self.SUPPORTED_BLOCK_TYPES:
                 return f"\n[Unsupported block type: {block.get('type')}]\n"
@@ -70,9 +66,10 @@ class DocuMate:
             # 递归处理子block
             if block.get('has_children'):
                 try:
-                    children = api.get_block_children(block['id'], recursive=True)
+                    children = await notion_api.async_get_block_children(block['id'], recursive=True)
                     for child in children.get('results', []):
-                        content.append(parse_block(child))
+                        child_content = await parse_block(child)
+                        content.append(child_content)
                 except Exception as e:
                     print(f"Error parsing child blocks: {str(e)}")
 
@@ -85,15 +82,15 @@ class DocuMate:
                 return ' '.join(content)
         
         try:
-            # 获取block及其子block
-            block = api.get_block_children(block_id, recursive=True)
-            if not block.get('results'):
+            block_data = await notion_api.async_get_block_children(block_id, recursive=True)
+            if not block_data.get('results'):
                 return ""
             
             # 解析所有内容
             full_content = []
-            for b in block['results']:
-                full_content.append(parse_block(b))
+            for b in block_data['results']:
+                block_content = await parse_block(b)
+                full_content.append(block_content)
                 
             # 修改内容拼接方式
             return '\n'.join(
@@ -104,17 +101,69 @@ class DocuMate:
             print(f"Error getting block content: {str(e)}")
             return ""
 
-# 使用示例
+    async def generate_summary(self, page_id: str, **kwargs) -> str:
+        """
+        生成页面摘要
+        Args:
+            page_id (str): Notion页面ID
+            **kwargs: 传递给llm_api.summarize_text的参数
+        Returns:
+            str: 生成的摘要内容
+        """
+        content = await self.get_block_text_content(page_id)
+        if not content:
+            raise ValueError(f"无法获取页面内容: {page_id}")
+        
+        try:
+            return await llm_api.summarize_text(content, **kwargs)
+        except llm_api.OpenAIAPIError as e:
+            raise RuntimeError(f"摘要生成失败: {str(e)}") from e
+
+    async def generate_tags(self, page_id: str, **kwargs) -> List[str]:
+        """
+        生成页面标签
+        Args:
+            page_id (str): Notion页面ID
+            **kwargs: 传递给llm_api.generate_tags的参数
+        Returns:
+            List[str]: 生成的标签列表
+        """
+        content = await self.get_block_text_content(page_id)
+        if not content:
+            raise ValueError(f"无法获取页面内容: {page_id}")
+        
+        try:
+            return await llm_api.generate_tags(content, **kwargs)
+        except llm_api.OpenAIAPIError as e:
+            raise RuntimeError(f"标签生成失败: {str(e)}") from e
+
+# 更新使用示例
 if __name__ == '__main__':
     dm = DocuMate()
     
-    # 获取未处理内容
-    unprocessed = dm.get_unprocessed_blocks()
-    print(f"Found {len(unprocessed)} unprocessed blocks")
-    
-    # 获取第一个block的内容
-    if unprocessed:
-        first_id = unprocessed[0]['id']
-        content = dm.get_block_text_content(first_id)
-        print("\nBlock Content:")
-        print(content[:500] + "...")  # 打印前500字符避免控制台溢出
+    async def process_first_page():
+        # 获取未处理内容
+        unprocessed = await dm.get_unprocessed_blocks()
+        print(f"Found {len(unprocessed)} unprocessed blocks")
+        
+        if unprocessed:
+            first_id = unprocessed[0]['id']
+            
+            # 获取并打印内容
+            content = await dm.get_block_text_content(first_id)
+            print("\nBlock Content Preview:")
+            print(content[:500] + "...")
+            
+            # 生成摘要和标签
+            try:
+                summary = await dm.generate_summary(first_id)
+                tags = await dm.generate_tags(first_id)
+                
+                print("\nGenerated Summary:")
+                print(summary)
+                print("\nGenerated Tags:")
+                print(tags)
+            except Exception as e:
+                print(f"处理失败: {str(e)}")
+
+    asyncio.run(process_first_page())

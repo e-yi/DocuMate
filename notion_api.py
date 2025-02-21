@@ -1,9 +1,8 @@
-import requests
-import dotenv
 import os
-import tenacity
+import dotenv
+import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from requests.exceptions import HTTPError
+from typing import Dict, List, Optional
 
 import rich
 
@@ -12,32 +11,88 @@ dotenv.load_dotenv()
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 
-NOTION_VERSION = "2022-06-28"
+# 恢复原始header定义
 NOTION_AUTH_HEADER = f"Bearer {NOTION_API_KEY}"
+NOTION_VERSION = "2022-06-28"
 
-# 添加重试装饰器
-def notion_retry(func):
-    return retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type(
-            lambda e: isinstance(e, HTTPError) and e.response.status_code == 429
-        ),
-        before_sleep=lambda retry_state: print(
-            f"Rate limited, retrying ({retry_state.attempt_number}/5)...")
-    )(func)
+class NotionAPIError(Exception):
+    """Notion API自定义异常"""
+    pass
 
-# 添加参数验证函数
-def _validate_url_length(url_part: str, max_length: int = 2000):
-    if len(url_part) > max_length:
-        raise ValueError(f"URL parameter exceeds {max_length} characters")
+# 异步重试装饰器
+notion_retry = retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type(httpx.HTTPStatusError),
+    reraise=True
+)
 
-def _validate_array_size(arr: list, max_size: int = 100):
-    if len(arr) > max_size:
-        raise ValueError(f"Array size exceeds {max_size} elements")
+@notion_retry
+async def query_database(filter: Optional[Dict] = None, sorts: Optional[List] = None) -> Dict:
+    """异步查询数据库"""
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query"
+    payload = {}
+    if filter: payload["filter"] = filter
+    if sorts: payload["sorts"] = sorts
+
+    headers = {
+        "Authorization": NOTION_AUTH_HEADER,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            url,
+            headers=headers,
+            json=payload
+        )
+    
+    if response.status_code != 200:
+        raise NotionAPIError(f"查询失败[{response.status_code}]: {response.text}")
+    
+    return response.json()
+
+@notion_retry
+async def async_get_block_children(block_id: str, recursive: bool = False) -> Dict:
+    """异步获取block子内容"""
+    url = f"https://api.notion.com/v1/blocks/{block_id}/children"
+    params = {"page_size": 100}
+    
+    headers = {
+        "Authorization": NOTION_AUTH_HEADER,
+        "Notion-Version": NOTION_VERSION
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            url,
+            headers=headers,
+            params=params
+        )
+    
+    if response.status_code != 200:
+        raise NotionAPIError(f"获取block失败[{response.status_code}]: {response.text}")
+    
+    data = response.json()
+    
+    # 递归获取子block
+    if recursive and data.get("has_more"):
+        next_cursor = data.get("next_cursor")
+        while next_cursor:
+            params["start_cursor"] = next_cursor
+            next_response = await client.get(url, headers={
+                "Authorization": NOTION_AUTH_HEADER,
+                "Notion-Version": NOTION_VERSION
+            }, params=params)
+            next_data = next_response.json()
+            data["results"].extend(next_data.get("results", []))
+            next_cursor = next_data.get("next_cursor")
+    
+    return data
 
 def get_database():
-    response = requests.get(
+    response = httpx.get(
     f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
     headers={
         "Authorization": NOTION_AUTH_HEADER,
@@ -50,7 +105,7 @@ def get_database():
     return response.json()
 
 @notion_retry
-def query_database(filter=None, sorts=None):
+async def query_database(filter=None, sorts=None):
     """
     Example Usage:
     ```
@@ -79,14 +134,15 @@ def query_database(filter=None, sorts=None):
     if sorts:
         payload["sorts"] = sorts
     
-    response = requests.post(url, headers=headers, json=payload)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
 
     response.raise_for_status()
 
     return response.json()
 
 @notion_retry
-def get_page(page_id: str):
+async def get_page(page_id: str):
     """
     Example Usage:
     ```
@@ -99,12 +155,13 @@ def get_page(page_id: str):
         "Notion-Version": NOTION_VERSION
     }
     
-    response = requests.get(url, headers=headers)
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
     response.raise_for_status()
     return response.json()
 
 @notion_retry
-def get_block_children(block_id: str, size: int = 100, start_cursor: str = None, 
+async def get_block_children(block_id: str, size: int = 100, start_cursor: str = None, 
                       get_all: bool = False, recursive: bool = False):
     """
     Example Usage:
@@ -129,7 +186,8 @@ def get_block_children(block_id: str, size: int = 100, start_cursor: str = None,
             'start_cursor': next_cursor
         }
         
-        response = requests.get(url, headers=headers, params=params)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         data = response.json()
         
@@ -137,7 +195,7 @@ def get_block_children(block_id: str, size: int = 100, start_cursor: str = None,
         for block in data.get('results', []):
             if recursive and block.get('has_children'):
                 try:
-                    block['children'] = get_block_children(
+                    block['children'] = await get_block_children(
                         block['id'],
                         size=size,
                         get_all=True,
