@@ -91,17 +91,19 @@ async def async_get_block_children(block_id: str, recursive: bool = False) -> Di
     
     return data
 
-def get_database():
-    response = httpx.get(
-    f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
-    headers={
+@notion_retry
+async def get_database() -> Dict:
+    """异步获取数据库信息"""
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}"
+    headers = {
         "Authorization": NOTION_AUTH_HEADER,
-        "Notion-Version": NOTION_VERSION,
-        },
-    )
+        "Notion-Version": NOTION_VERSION
+    }
 
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+    
     response.raise_for_status()
-
     return response.json()
 
 @notion_retry
@@ -221,37 +223,99 @@ async def get_block_children(block_id: str, size: int = 100, start_cursor: str =
         'block': data.get('block', {})
     }
 
+@notion_retry
+async def update_page(
+    page_id: str,
+    properties: Dict,
+    in_trash: bool = False,
+    icon: Optional[Dict] = None,
+    cover: Optional[Dict] = None
+) -> Dict:
+    """
+    Update page properties
+    Example Usage:
+    ```
+        await update_page(
+            page_id="b55c9c91-...",
+            properties={
+                "Processed": {"checkbox": True},
+                "Summary": {"rich_text": [{"text": {"content": "Example summary"}}]}
+            }
+        )
+    ```
+    """
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    headers = {
+        "Authorization": NOTION_AUTH_HEADER,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "properties": properties,
+        "in_trash": in_trash
+    }
+    if icon: payload["icon"] = icon
+    if cover: payload["cover"] = cover
+
+    async with httpx.AsyncClient() as client:
+        response = await client.patch(url, headers=headers, json=payload)
+    
+    if response.status_code != 200:
+        raise NotionAPIError(f"Update failed[{response.status_code}]: {response.text}")
+    
+    return response.json()
+
 if __name__ =='__main__':
+    import asyncio
+    
+    async def main():
+        # test get_database
+        print("Testing database retrieval...")
+        database = await get_database()
+        print(f"Database:")
+        rich.print(database)
 
-    # test query_database
-    print("Testing database query...")
-    results = query_database(
-        filter={
-            "property": "Processed", "checkbox": {"equals": False}
-        },
-        sorts=[{"property": "Created", "direction": "descending"}]
-    )
-    print(f"Found {len(results.get('results', []))} entries")
-    if results.get('results'):
-        print("First entry:")
-        rich.print(results['results'][0])
+        # test query_database
+        # print("Testing database query...")
+        # results = await query_database(
+        #     filter={
+        #         "property": "Processed", "checkbox": {"equals": False}
+        #     },
+        #     sorts=[{"property": "Created", "direction": "descending"}]
+        # )
+        # print(f"Found {len(results.get('results', []))} entries")
+        # if results.get('results'):
+        #     print("First entry:")
+        #     rich.print(results['results'][0])
 
-    # # test get_page
-    # print("\nTesting page retrieval...")
-    # if results.get('results'):
-    #     first_page_id = results['results'][0]['id']
-    #     page = get_page(first_page_id)
-    #     print("Retrieved page:")
-    #     rich.print(page)
+        # # test get_page
+        # print("\nTesting page retrieval...")
+        # if results.get('results'):
+        #     first_page_id = results['results'][0]['id']
+        #     page = await get_page(first_page_id)
+        #     print("Retrieved page:")
+        #     rich.print(page)
 
-    # test get_block_children
-    print("\nTesting block children retrieval...")
-    if results.get('results'):
-        first_page_id = results['results'][0]['id']
-        
-        # Test recursive fetch
-        blocks = get_block_children(first_page_id, size=1, recursive=True)
-        print("Nested block structure:")
-        rich.print(blocks)
+        # test get_block_children
+        # print("\nTesting block children retrieval...")
+        # if results.get('results'):
+        #     first_page_id = results['results'][0]['id']
+            
+        #     # Test recursive fetch
+        #     blocks = await get_block_children(first_page_id, size=1, recursive=True)
+        #     print("Nested block structure:")
+        #     rich.print(blocks)
 
-    # todo test qos
+        # # test update_page
+        # print("\nTesting page update...")
+        # if results.get('results'):
+        #     test_page_id = results['results'][0]['id']
+        #     update_result = await update_page(
+        #         page_id=test_page_id,
+        #         properties={"Processed": {"checkbox": True}}
+        #     )
+        #     print("Updated page:")
+        #     rich.print(update_result)
+
+    asyncio.run(main())
