@@ -53,7 +53,14 @@ DEFAULT_LANGUAGE="zh-CN"  # zh-CN/en/ja
 PERSONAL_DESCRIPTION="Technical professional in AI"
 ```
 
-### 3. Running
+### 3. Configure Notion
+
+Add required properties to your Notion database:
+   - Create a "Summary" property (Text type)
+   - Create a "Tag" property (Multi-select type)
+   - Create a "Processed" property (Checkbox type)
+
+### 4. Running
 ```bash
 # Start continuous processing
 python docu_mate.py
