@@ -3,6 +3,10 @@
 ![Notion Automation](https://img.shields.io/badge/Platform-Notion%20API-blueviolet)
 ![AI Processing](https://img.shields.io/badge/Powered%20By-LLM-green)
 
+
+[中文文档](./readme-zh.md)
+
+
 Automated document processor that adds AI-powered summaries and tags to Notion pages.
 
 ## 🚀 Key Features
