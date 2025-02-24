@@ -1,17 +1,11 @@
 # DocuMate for Notion
 
 ![Notion Automation](https://img.shields.io/badge/Platform-Notion%20API-blueviolet)
-![AI Processing](https://img.shields.io/badge/Powered%20By-OpenAI-green)
+![AI Processing](https://img.shields.io/badge/Powered%20By-LLM-green)
 
 Automated document processor that adds AI-powered summaries and tags to Notion pages.
 
 ## 🚀 Key Features
-
-### 📑 Content Processing
-- Extracts text from 7+ block types 
-  - Paragraphs, Headings (1-3), Lists, Quotes, Code blocks
-  - Preserves **bold** and *italic* formatting
-  - Handles nested content structures
 
 ### 🤖 AI Enhancements
 - **Smart Summarization**
@@ -21,6 +15,11 @@ Automated document processor that adds AI-powered summaries and tags to Notion p
   - Creates technical tags based on content
   - Integrates with existing Notion tags
   - 5 tags per page (configurable)
+
+### 📑 Content Processing
+- Extracts text from 7+ block types 
+  - Paragraphs, Headings (1-3), Lists, Quotes, Code blocks
+  - Handles nested content structures
 
 ### ⚙️ Workflow Automation
 - Scans database every 10 minutes
@@ -36,8 +35,8 @@ Automated document processor that adds AI-powered summaries and tags to Notion p
 
 ### 1. Installation
 ```bash
-git clone https://github.com/yourusername/docu-mate.git
-cd docu-mate
+git clone https://github.com/e-yi/DocuMate.git
+cd DocuMate
 pip install -r requirements.txt
 cp .env.example .env
 ```
@@ -52,50 +51,13 @@ OPENAI_API_KEY="sk-your-openai-key"
 # Optional
 DEFAULT_LANGUAGE="zh-CN"  # zh-CN/en/ja
 PERSONAL_DESCRIPTION="Technical professional in AI"
-PROCESS_INTERVAL="600"    # Seconds between checks
 ```
 
 ### 3. Running
 ```bash
 # Start continuous processing
 python docu_mate.py
-
-# Test with single page
-python -c "from docu_mate import test_apis; test_apis()"
-```
-
-## 🔧 Customization
-
-### Processing Parameters
-```python
-# In docu_mate.py
-DEFAULT_INTERVAL = 600    # Check every 10 minutes
-MAX_CONTENT_LENGTH = 8192 # Truncate long texts
-MAX_TAGS = 5              # Tags per page
-```
-
-### AI Behavior
-Modify prompts in `llm_api.py` to:
-- Change summary style
-- Adjust tag specificity
-- Add domain-specific terminology
-
-## 🧪 Development
-
-```bash
-# Run tests
-pytest tests/
-
-# Check code quality
-flake8 . --count --show-source --statistics
-
-# Format code
-black .
 ```
 
 ## 📜 License
-Open-source under [MIT License](LICENSE) - free for personal and commercial use
-
-> **Note**  
-> Requires proper Notion workspace permissions and OpenAI API access
-
+[MIT License](LICENSE)
